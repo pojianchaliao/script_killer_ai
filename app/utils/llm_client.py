@@ -431,7 +431,7 @@ if __name__ == "__main__":
     
     result = client.invoke(messages)
     if result["success"]:
-        print(f"回复：{result['data']['content']}")
+        print(f"回复：{result['data'].content}")
     else:
         print(f"错误：{result['error']}")
     
@@ -483,11 +483,11 @@ if __name__ == "__main__":
     
     if result["success"]:
         print(f"响应类型：{result['type']}")
-        if result["data"].tool_calls:
-            print(f"检测到 {len(result['data'].tool_calls)} 个工具调用:")
-            for tool_call in result["data"].tool_calls:
-                print(f"  - 工具名：{tool_call.function.name}")
-                print(f"    参数：{tool_call.function.arguments}")
+        if result["data"]['tool_calls']:
+            print(f"检测到 {len(result['data']['tool_calls'])} 个工具调用:")
+            for tool_call in result["data"]['tool_calls']:
+                print(f"  - 工具名：{tool_call['function']['name']}")
+                print(f"    参数：{tool_call['function']['arguments']}")
     else:
         print(f"错误：{result.get('error', '未知错误')}")
     
@@ -499,6 +499,6 @@ if __name__ == "__main__":
     client.use_high_intelligence()  # 切换到 glm-4
     result = client.invoke([{"role": "user", "content": "1+1 等于几？"}])
     if result["success"]:
-        print(f"glm-4 回复：{result['data']['content']}")
-    
+        print(f"glm-4 回复：{result['data'].content}")
+
     client.use_low_cost()  # 切换回 glm-4-flash
