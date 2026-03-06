@@ -7,6 +7,29 @@
 - BaseSettings 自动从环境变量读取配置
 - 类型注解强制类型检查，类似 Java 的字段类型声明
 """
+import os
+
+from dotenv import load_dotenv  # 添加这行
+from pathlib import Path  # 添加这行
+
+
+# ==================== 手动加载 .env 文件 ====================
+def load_env_file():
+    project_root = Path(__file__).parent.parent
+    env_file_path = project_root / ".env"
+
+    if env_file_path.exists():
+        load_dotenv(dotenv_path=env_file_path)
+        print(f"✓ 已加载 .env 文件：{env_file_path}")
+        return True
+    else:
+        print(f"⚠️  警告：.env 文件不存在：{env_file_path}")
+        return False
+
+
+# 立即执行加载函数
+load_env_file()
+
 from pydantic_settings import BaseSettings  # Pydantic 的配置基类
 from typing import Optional  # Optional 表示字段可以为 None
 
@@ -84,11 +107,25 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"  # 文件编码
         case_sensitive = True  # 区分大小写
 
+class Config:
+    env_file = None  # 改为 None
+    env_file_encoding = "utf-8"
+    case_sensitive = True
 
 # ==================== 全局单例 ====================
 # 在模块级别创建单例对象
 # 类似 Java: public static final Settings settings = new Settings();
-settings = Settings()
+def create_settings():
+    try:
+        settings_instance = Settings()
+        print(f"✓ 配置加载成功，环境：{settings_instance.APP_ENV}")
+        return settings_instance
+    except Exception as e:
+        print(f"❌ 配置加载失败：{e}")
+        print(f"ZHIPU_API_KEY 环境变量：{os.getenv('ZHIPU_API_KEY', '未设置')}")
+        raise
+
+settings = create_settings()
 
 
 def get_settings() -> Settings:

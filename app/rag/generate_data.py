@@ -62,24 +62,41 @@ class DataGenerator:
         with open(self.input_file, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # 使用正则表达式匹配条目
-        # 匹配模式：【正史】或【演义】开头的事件
-        pattern = r'【(正史 | 演义)】(.*?)\n(.*?)(?=\n【|$)'
-        matches = re.findall(pattern, content, re.DOTALL)
+        # 使用两个单独的正则表达式分别匹配【正史】和【演义】
+        zhengshi_pattern = r'【正史】([^\n]+)\n(.*?)(?=\n【|$)'
+        yanyi_pattern = r'【演义】([^\n]+)\n(.*?)(?=\n【|$)'
+        
+        zhengshi_matches = re.findall(zhengshi_pattern, content, re.DOTALL)
+        yanyi_matches = re.findall(yanyi_pattern, content, re.DOTALL)
+        
+        print(f"匹配到正史 {len(zhengshi_matches)} 条")
+        print(f"匹配到演义 {len(yanyi_matches)} 条")
         
         raw_data = []
-        for match in matches:
-            source_type = match[0]  # 正史或演义
-            event_line = match[1]  # 事件行
-            description = match[2]  # 描述内容
-            
-            # 提取人物和事件
-            # 简单规则：事件行中的第一个人名或称谓
+        
+        # 处理正史数据
+        for match in zhengshi_matches:
+            event_line = match[0]  # 事件行
+            description = match[1]  # 描述内容
             character = self._extract_character(event_line)
             event = self._extract_event(event_line)
             
             raw_data.append({
-                "source_type": source_type,
+                "source_type": "正史",
+                "character": character,
+                "event": event,
+                "description": description.strip()
+            })
+        
+        # 处理演义数据
+        for match in yanyi_matches:
+            event_line = match[0]  # 事件行
+            description = match[1]  # 描述内容
+            character = self._extract_character(event_line)
+            event = self._extract_event(event_line)
+            
+            raw_data.append({
+                "source_type": "演义",
                 "character": character,
                 "event": event,
                 "description": description.strip()
