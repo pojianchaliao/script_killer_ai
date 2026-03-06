@@ -15,11 +15,44 @@ from dotenv import load_dotenv  # 加载环境变量
 
 # 导入智谱 AI 客户端
 import sys
+
+from zhipuai import ZhipuAI
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.utils.llm_client import call_llm
 
 # 加载环境变量
 load_dotenv()
+
+# 验证 API Key 是否已设置
+def validate_api_key():
+    """
+    验证智谱 AI API Key 是否已配置
+    
+    Returns:
+        bool: API Key 是否有效
+    """
+    api_key = os.getenv("ZHIPU_API_KEY")
+    if not api_key:
+        print("❌ 错误：ZHIPU_API_KEY 环境变量未设置")
+        print("\n请按照以下步骤配置:")
+        print("1. 在项目根目录的 .env 文件中添加:")
+        print("   ZHIPU_API_KEY=your_api_key_here")
+        print("\n2. 从智谱 AI 开放平台获取 API Key:")
+        print("   https://open.bigmodel.cn/")
+        print("\n3. 重新运行此程序")
+        return False
+    
+    # 简单的格式验证
+    if len(api_key) < 10 or '.' not in api_key:
+        print("⚠️  警告：API Key 格式可能不正确")
+        print(f"   当前 API Key: {api_key[:5]}...{api_key[-5:]}")
+        print("   请确认 .env 文件中的 ZHIPU_API_KEY 配置正确")
+        return False
+    
+    print(f"✅ API Key 验证通过：{api_key[:5]}...{api_key[-5:]}")
+    return True
+
 
 
 class DataGenerator:
@@ -47,123 +80,128 @@ class DataGenerator:
     def parse_txt_file(self) -> List[Dict[str, str]]:
         """
         解析 txt 文件，提取原始数据
-        
+            
         Returns:
             List[Dict[str, str]]: 提取的原始数据列表
-        
+            
         @Java 程序员提示:
         - 这是 ETL 的 Extract 阶段
         - 使用正则表达式解析文本
         - 类似 Java 的 Pattern + Matcher
         """
         print(f"正在读取文件：{self.input_file}")
-        
+            
         # 读取文件内容
         with open(self.input_file, 'r', encoding='utf-8') as f:
             content = f.read()
-        
-        # 使用两个单独的正则表达式分别匹配【正史】和【演义】
-        zhengshi_pattern = r'【正史】([^\n]+)\n(.*?)(?=\n【|$)'
-        yanyi_pattern = r'【演义】([^\n]+)\n(.*?)(?=\n【|$)'
-        
+            
+        # 只使用正则匹配【正史】和【演义】标记，提取完整文本块
+        zhengshi_pattern = r'【正史】(.*?)(?=\n【|$)'
+        yanyi_pattern = r'【演义】(.*?)(?=\n【|$)'
+            
         zhengshi_matches = re.findall(zhengshi_pattern, content, re.DOTALL)
         yanyi_matches = re.findall(yanyi_pattern, content, re.DOTALL)
-        
+            
         print(f"匹配到正史 {len(zhengshi_matches)} 条")
         print(f"匹配到演义 {len(yanyi_matches)} 条")
-        
+            
         raw_data = []
-        
-        # 处理正史数据
-        for match in zhengshi_matches:
-            event_line = match[0]  # 事件行
-            description_text = match[1]  # 描述内容
             
-            # 提取各个字段（不提取 character，让 AI 判断）
-            event = self._extract_event(event_line)
-            background = self._extract_field(description_text, "背景说明")
-            game_effect = self._extract_field(description_text, "游戏效果")
-            if not game_effect:
-                game_effect = self._extract_field(description_text, "游戏/叙事效果")
-            if not game_effect:
-                game_effect = self._extract_field(description_text, "效果")
-            source = self._extract_field(description_text, "出处")
-            
+        # 处理正史数据 - 只保留完整文本，不提取任何字段
+        for i, full_text in enumerate(zhengshi_matches):
             raw_data.append({
                 "source_type": "正史",
-                "event_line": event_line,  # 保留完整事件行供 AI 分析
-                "event": event,
-                "background": background,
-                "game_effect": game_effect,
-                "source_doc": source,
-                "full_description": description_text.strip()
+                "full_text": full_text.strip(),
+                "index": i  # 记录原始索引
             })
-        
-        # 处理演义数据
-        for match in yanyi_matches:
-            event_line = match[0]  # 事件行
-            description_text = match[1]  # 描述内容
             
-            # 提取各个字段（不提取 character，让 AI 判断）
-            event = self._extract_event(event_line)
-            background = self._extract_field(description_text, "背景说明")
-            game_effect = self._extract_field(description_text, "游戏效果")
-            if not game_effect:
-                game_effect = self._extract_field(description_text, "游戏/叙事效果")
-            if not game_effect:
-                game_effect = self._extract_field(description_text, "效果")
-            source = self._extract_field(description_text, "出处")
-            
+        # 处理演义数据 - 只保留完整文本，不提取任何字段
+        for i, full_text in enumerate(yanyi_matches):
             raw_data.append({
                 "source_type": "演义",
-                "event_line": event_line,  # 保留完整事件行供 AI 分析
-                "event": event,
-                "background": background,
-                "game_effect": game_effect,
-                "source_doc": source,
-                "full_description": description_text.strip()
+                "full_text": full_text.strip(),
+                "index": i  # 记录原始索引
             })
-        
+            
         print(f"成功解析 {len(raw_data)} 条原始数据")
         if raw_data:
-            print(f"第一条示例：{raw_data[0]['event']}")
+            print(f"第一条示例 (前 100 字): {raw_data[0]['full_text'][:100]}...")
         return raw_data
-    
-    def _extract_field(self, text: str, field_name: str) -> str:
-        """
-        从文本中提取指定字段的内容
-        
-        Args:
-            text: 完整文本
-            field_name: 字段名（如"背景说明"、"游戏效果"等）
-            
-        Returns:
-            str: 字段内容
-        """
-        pattern = rf'{field_name}[:：](.*?)(?=\n[A-Z]|\Z)'
-        match = re.search(pattern, text, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return ""
     
     def _extract_event(self, event_line: str) -> str:
         """
-        从事件行中提取事件名称
+        从事件行中提取事件名称（已废弃，改用大模型）
+            
+        @Java 程序员提示:
+        - 此方法已废弃，现在所有字段都交给大模型总结
+        """
+        return ""
+    
+    def _extract_theme_from_event(self, event: str) -> str:
+        """
+        从 event 字段中提取 theme：判断是人物、群体、地理位置还是历史事件
         
         Args:
-            event_line: 事件描述行
+            event: 事件名称
             
         Returns:
-            str: 事件名称
+            str: theme（人物/群体/地理位置/历史事件等）
         
         @Java 程序员提示:
-        - 提取事件标题
-        - 类似 Java 的 substring 操作
+        - 使用大模型判断 event 的语义类型
+        - 类似 Java 的分类器
         """
-        # 简单规则：取事件行的前 20 个字符
-        # 实际可以更智能
-        event = event_line.split('：')[0] if '：' in event_line else event_line[:20]
-        return event.strip()
+        try:
+            # 构建专门的 prompt 来判断 event 的类型
+            theme_prompt = f"""
+请分析以下三国事件名称，判断它主要描述的是什么类型的主体。
+
+【事件名称】
+{event}
+
+【分类要求】
+请从以下类别中选择一个最合适的：
+1. **人物**：具体的历史人物（如"诸葛亮"、"曹操"）
+2. **群体**：组织、军队、势力（如"黄巾军"、"蜀汉"）
+3. **地理位置**：城市、地点（如"洛阳"、"荆州"）
+4. **历史事件**：战役、政变等（如"赤壁之战"、"黄巾起义"）
+5. **制度政策**：政治制度、政策（如"屯田制"）
+6. **其他**：不属于以上类别的事物
+
+【输出格式】
+只输出类别名称（人物/群体/地理位置/历史事件/制度政策/其他），不要有任何额外文字。
+"""
+            
+            # 调用大模型
+            response = call_llm(
+                prompt=theme_prompt,
+                model="glm-4-flash",
+                temperature=0.3  # 降低温度，使输出更稳定
+            )
+            # 提取响应中的关键词
+            theme = response.strip()
+            # 去除可能的标点符号
+            theme = theme.rstrip('.,.!?.')
+            
+            print(f"    [AI 原始返回]: {response.strip()}")
+            print(f"    [处理后 theme]: {theme}")
+            
+            # 如果 AI 返回的内容不在预期范围内，使用默认值
+            valid_themes = ['人物', '群体', '地理位置', '历史事件', '制度政策', '其他']
+            if theme not in valid_themes:
+                # 尝试匹配第一个词
+                for valid_theme in valid_themes:
+                    if valid_theme in theme:
+                        theme = valid_theme
+                        break
+                else:
+                    theme = '其他'  # 默认值
+            
+            return theme
+            
+        except Exception as e:
+            print(f"  ⚠️  theme 提取失败：{e}，使用默认值")
+            return '其他'
     
     def enrich_with_ai(self, raw_data: List[Dict[str, str]]) -> List[Dict[str, Any]]:
         """
@@ -186,27 +224,57 @@ class DataGenerator:
         enriched_data = []
         
         for i, item in enumerate(raw_data, 1):
-            print(f"\n处理第 {i}/{len(raw_data)} 条：{item['event']}")
+            # 从完整文本中提取第一行用于显示
+            first_line = item['full_text'].split('\n')[0][:50] if '\n' in item['full_text'] else item['full_text'][:50]
+            print(f"\n处理第 {i}/{len(raw_data)} 条：{first_line}...")
             
             # 构建提示词
             prompt = self._build_enrich_prompt(item)
             
             try:
+                # 验证 API Key
+                if not validate_api_key():
+                    print(f"✗ 第 {i}/{len(raw_data)} 条数据处理失败：API Key 未配置")
+                    enriched_item = self._create_default_item(item, i)
+                    enriched_data.append(enriched_item)
+                    continue
+                
                 # 调用智谱 AI
                 response = call_llm(
                     prompt=prompt,
                     model="glm-4-flash",
                     temperature=0.7
                 )
+                # 检查 API 调用是否成功
+                if response.startswith("[错误]"):
+                    print(f"✗ AI 调用失败：{response}")
+                    enriched_item = self._create_default_item(item, i)
+                    enriched_data.append(enriched_item)
+                    continue
                 
                 # 解析 AI 返回的 JSON
                 enriched_item = self._parse_ai_response(response, item)
+                                
+                # 强制修正 id 为递增序号（确保顺序）
+                enriched_item['id'] = f"tk_{i:03d}"
+                                
+                # 从 event 字段总结 theme 字段：判断是人物、群体、地理位置还是历史事件
+                if 'event' in enriched_item and enriched_item['event']:
+                    theme = self._extract_theme_from_event(enriched_item['event'])
+                    enriched_item['theme'] = theme
+                    # 埋点：输出 theme 判断结果
+                    print(f"  📊 event: {enriched_item['event']} → theme: {theme}")
+                
+                # 清理 description 字段：删除开头的序号（如"365."等）
+                if 'description' in enriched_item:
+                    enriched_item['description'] = re.sub(r'^\d+[\.、]\s*', '', enriched_item['description'])
+                
                 enriched_data.append(enriched_item)
                 
                 print(f"✓ 补全成功")
                 
             except Exception as e:
-                print(f"✗ AI 调用失败：{e}")
+                print(f"✗ 第 {i}/{len(raw_data)} 条处理失败：{e}")
                 # 使用默认值
                 enriched_item = self._create_default_item(item, i)
                 enriched_data.append(enriched_item)
@@ -229,34 +297,34 @@ class DataGenerator:
         - 指导 AI 生成所需格式
         """
         return f"""
-请根据以下三国历史事件信息，生成符合 JSON 格式的数据。
+请根据以下三国历史事件的完整文本，总结并生成符合 JSON 格式的数据。
 
-【输入信息】
-- 来源类型：{item['source_type']}
-- 事件标题：{item['event_line']}
-- 背景说明：{item.get('background', '')}
-- 游戏效果：{item.get('game_effect', '')}
-- 出处文献：{item.get('source_doc', '')}
+【原始文本】（来源类型：{item['source_type']}）
+{item['full_text']}
 
 【输出要求】
 请生成一个 JSON 对象，包含以下字段：
 1. "id": 格式为 "tk_XXX"，XXX 为三位数字编号（从 001 开始）
-2. "character": **关键**：从事件中提取主要人物、地点或事物名称。可能是：
+2. "theme": **关键**：从事件中提取主要人物、地点或事物名称。可能是：
    - 人名：如"诸葛亮"、"曹操"、"关羽"
    - 地名：如"下邳"、"洛阳"、"荆州"
    - 事件名：如"黄巾起义"、"赤壁之战"
    - 制度/政策：如"屯田制"、"九品中正制"
    - 其他：根据事件内容判断最核心的主体
-3. "event": 事件名称（简洁，10 字以内）
-4. "source_type": "正史"或"演义"
-5. "description": 事件描述 + 社会影响（100-200 字，结合背景说明和游戏效果）
-6. "historical_fact": 根据出处文献填写真实考证（如《后汉书·皇甫嵩传》记载了什么，或说明虚构）
-7. "dramatic_value": 戏剧价值评级，根据游戏效果判断：
+3. "event": 事件名称（简洁，10 字以内，去除开头的序号如"365."等）
+4. "source_type": "{item['source_type']}"
+5. "description": **包含背景说明 + 事件描述 + 社会影响的全部内容**（100-200 字，从原文中总结）
+   - 背景说明：事件发生的历史背景、原因
+   - 事件描述：具体发生了什么
+   - 社会影响：事件的结果、影响、意义
+6. "game_effect": **游戏效果字段**，从原文或 description 中提取"游戏效果："或"游戏/叙事效果："后面的内容（如有），没有则为从description总结设计最后都加上合理的影响数值或者百分比
+7. "historical_fact": 从原文中提取出处文献的真实考证（如《后汉书·皇甫嵩传》记载了什么，或说明虚构）
+8. "dramatic_value": 戏剧价值评级，从原文中的效果描述判断：
    - "very_high": 效果非常显著（如全境影响、数值变化>50%）
    - "high": 效果显著（如地区影响、数值变化 30-50%）
    - "medium": 效果一般（如局部影响、数值变化 10-30%）
    - "low": 效果轻微（如单一事件、数值变化<10%）
-8. "tags": 标签数组（3-5 个关键词，如人物、地点、战役、计谋、制度等）
+9. "tags": 标签数组（3-5 个关键词，如人物、地点、战役、计谋、制度等）
 
 【输出格式】
 直接输出 JSON 对象，不要有任何额外文字，不要使用 Markdown 代码块。
@@ -264,13 +332,14 @@ class DataGenerator:
 示例格式:
 {{
   "id": "tk_001",
-  "character": "诸葛亮",
+  "theme": "诸葛亮",
   "event": "草船借箭",
   "source_type": "演义",
-  "description": "诸葛亮利用大雾天气，以草船从曹操处借得十万支箭。此计不仅解决了蜀军的箭矢短缺，更展现了诸葛亮的智谋，成为千古流传的经典战例。",
-  "historical_fact": "《三国演义》第四十六回虚构情节。历史上孙权曾有类似事迹，但非诸葛亮所为。",
+  "description": "背景说明：黄巾之乱后，西北凉州地区因长期民族矛盾与苛政，再度爆发大规模叛乱。事件描述：羌人与汉人豪强边章、韩遂等人联合，聚众十余万，攻掠三辅（京兆尹、左冯翊、右扶风），兵锋直指长安。社会影响：严重威胁东汉西部统治，朝廷被迫调集重兵镇压，加剧了东汉王朝的衰落。",
+  "game_effect": "玩家可在此区域进行平叛任务，获得声望奖励",
+  "historical_fact": "《后汉书·皇甫嵩传》记载了此次叛乱的详细经过",
   "dramatic_value": "very_high",
-  "tags": ["智谋", "虚构", "经典桥段", "赤壁之战"]
+  "tags": ["叛乱", "凉州", "东汉末年", "民族矛盾"]
 }}
 """
     
@@ -301,8 +370,8 @@ class DataGenerator:
                 data = json.loads(json_str)
                 
                 # 确保必需字段存在
-                required_fields = ["id", "character", "event", "source_type", 
-                                   "description", "historical_fact", "dramatic_value", "tags"]
+                required_fields = ["id", "theme", "event", "source_type",
+                                   "description", "game_effect", "historical_fact", "dramatic_value", "tags"]
                 
                 for field in required_fields:
                     if field not in data:
@@ -327,46 +396,24 @@ class DataGenerator:
         Returns:
             Dict[str, Any]: 默认数据项
         """
-        # 根据游戏效果判断戏剧价值
-        game_effect = item.get('game_effect', '')
-        dramatic_value = "high"  # 默认
-        if any(x in game_effect for x in ['全境', '所有', '×2', '×3', '+50%', '-50%']):
-            dramatic_value = "very_high"
-        elif any(x in game_effect for x in ['地区', '州', '郡', '+30%', '-30%']):
-            dramatic_value = "high"
-        elif any(x in game_effect for x in ['局部', '县', '+10%', '-10%']):
-            dramatic_value = "medium"
-        else:
-            dramatic_value = "low"
+        full_text = item.get('full_text', '')
         
-        # 构建描述：背景说明 + 游戏效果
-        description_parts = []
-        if item.get('background'):
-            description_parts.append(item['background'])
-        if item.get('game_effect'):
-            description_parts.append(f"游戏效果：{item['game_effect']}")
-        description = '\n'.join(description_parts) if description_parts else item.get('full_description', '')[:200]
-        
-        # 从事件行中提取一个简化的 character（基于规则）
-        event_line = item.get('event_line', '')
-        # 尝试提取第一个名词作为 character
-        if ':' in event_line:
-            potential_chara = event_line.split(':')[0].strip()
-            # 去掉【正史】或【演义】标记
-            potential_chara = potential_chara.replace('正史', '').replace('演义', '').strip()
-            character = potential_chara[:10]  # 限制长度
-        else:
-            character = event_line[:20].strip()
+        # 简单规则：从完整文本中提取第一行作为 event
+        first_line = full_text.split('\n')[0] if '\n' in full_text else full_text[:50]
+        # 去掉序号
+        import re
+        first_line = re.sub(r'^\d+[\.、]\s*', '', first_line).strip()
         
         return {
             "id": f"tk_{index:03d}",
-            "character": character,
-            "event": item["event"],
+            "theme": "未知",
+            "event": first_line[:20],
             "source_type": item["source_type"],
-            "description": description[:200] if len(description) > 200 else description,
-            "historical_fact": f"详见{item.get('source_doc', item['source_type'] + '记载')}",
-            "dramatic_value": dramatic_value,
-            "tags": [item["source_type"], "三国", character]
+            "description": full_text[:200],
+            "game_effect": "",  # 默认空值
+            "historical_fact": f"详见{item['source_type']}记载",
+            "dramatic_value": "low",
+            "tags": [item["source_type"], "三国"]
         }
     
     def save_to_json(self, data: List[Dict[str, Any]]):
@@ -393,12 +440,14 @@ class DataGenerator:
         print(f"\n✓ 数据已保存到：{self.output_file}")
         print(f"  共 {len(data)} 条记录")
     
-    def generate(self, use_ai: bool = True):
+    def generate(self, use_ai: bool = True, test_mode: bool = False, test_count: int = 10):
         """
         执行完整的生成流程
         
         Args:
             use_ai: 是否使用 AI 补全
+            test_mode: 是否启用测试模式（只处理部分数据）
+            test_count: 测试模式下处理的数据条数
         
         @Java 程序员提示:
         - 门面方法 (Facade)
@@ -409,12 +458,35 @@ class DataGenerator:
         print("开始生成 romance_three_kingdoms.json")
         print("=" * 60)
         
+        # 预先验证 API Key（如果使用 AI）
+        if use_ai:
+            print("\n🔍 正在验证 API Key 配置...")
+            if not validate_api_key():
+                print("\n⚠️  由于 API Key 未配置，自动切换到默认模式")
+                use_ai = False
+            else:
+                print("✅ API Key 验证通过，将使用 AI 补全数据\n")
+        
         # 步骤 1: 解析 txt 文件
         raw_data = self.parse_txt_file()
         
         if not raw_data:
             print("✗ 未找到任何数据")
             return
+        
+        # 测试模式：均匀抽样
+        if test_mode and len(raw_data) > test_count:
+            print(f"\n📊 测试模式：从 {len(raw_data)} 条数据中均匀抽取 {test_count} 条")
+            import random
+            # 计算抽样间隔
+            step = len(raw_data) // test_count
+            # 均匀选取索引
+            selected_indices = [i * step for i in range(test_count)]
+            # 确保不超过列表长度
+            selected_indices = [min(idx, len(raw_data) - 1) for idx in selected_indices]
+            # 按索引选取数据
+            raw_data = [raw_data[i] for i in selected_indices]
+            print(f"✓ 已选取 {len(raw_data)} 条数据，索引分布：{selected_indices}")
         
         # 步骤 2: 补全数据 (AI 或默认)
         if use_ai:
@@ -452,16 +524,33 @@ def main():
         print(f"✗ 输入文件不存在：{input_file}")
         return
     
+    # 询问是否使用 AI
+    use_ai_input = input("是否使用 AI 补全数据？(y/n，默认 y): ").strip().lower()
+    use_ai = use_ai_input not in ['n', 'no']
+    
+    # 如果选择使用 AI，先验证 API Key
+    if use_ai:
+        print("\n🔍 正在验证 API Key 配置...")
+        if not validate_api_key():
+            print("\n⚠️  API Key 未配置，将使用默认值生成数据")
+            print("💡 提示：配置 API Key 后可以获得更高质量的数据\n")
+            use_ai = False
+        else:
+            print("✅ API Key 验证通过\n")
+    
+    # 询问是否启用测试模式
+    test_mode_input = input("是否启用测试模式（只处理 10 条均匀分布的数据）？(y/n，默认 n): ").strip().lower()
+    test_mode = test_mode_input in ['y', 'yes']
+    if test_mode:
+        print("\n📊 测试模式：将从文档中均匀抽取 10 条数据")
+    else:
+        test_mode = False
+    
     # 创建生成器并执行
     generator = DataGenerator(input_file, output_file)
     
-    # 询问是否使用 AI
-    use_ai = input("是否使用 AI 补全数据？(y/n，默认 y): ").strip().lower()
-    if use_ai not in ['n', 'no']:
-        use_ai = True
-    
     # 执行生成
-    generator.generate(use_ai=use_ai)
+    generator.generate(use_ai=use_ai, test_mode=test_mode, test_count=10)
 
 
 if __name__ == "__main__":

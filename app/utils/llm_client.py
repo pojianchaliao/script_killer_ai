@@ -397,7 +397,13 @@ def call_llm(
             )
             
             if result["success"]:
-                return result["data"]["content"]
+                # 兼容两种情况：字典或 CompletionMessage 对象
+                data = result["data"]
+                if isinstance(data, dict):
+                    return data.get("content", "")
+                else:
+                    # CompletionMessage 对象，使用 .content 属性
+                    return getattr(data, 'content', '')
             else:
                 return f"[错误] {result.get('error', '未知错误')}"
     
