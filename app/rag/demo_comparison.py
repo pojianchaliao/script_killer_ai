@@ -7,13 +7,72 @@
 - 包含详细的注释和输出
 - 类似 Java 的 Main 方法 + Demo 类
 """
+import warnings
+
+# 抑制 LangChain 弃用警告
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+# ==================== HuggingFace Token 配置 ====================
+import os
+from pathlib import Path as PathLib
+
+def get_hf_token():
+    """获取 HuggingFace Token（优先级：环境变量 > .env > ~/.huggingface_token）"""
+    # 1. 环境变量
+    token = os.getenv("HF_TOKEN")
+    if token:
+        return token
+    
+    # 2. 项目 .env 文件
+    try:
+        project_root = PathLib(__file__).parent.parent.parent
+        env_file = project_root / ".env"
+        if env_file.exists():
+            with open(env_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("HF_TOKEN="):
+                        token = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        if token:
+                            return token
+    except Exception:
+        pass
+    
+    # 3. 用户主目录
+    try:
+        home_dir = PathLib.home()
+        token_file = home_dir / ".huggingface_token"
+        if token_file.exists():
+            with open(token_file, 'r', encoding='utf-8') as f:
+                token = f.read().strip()
+                if token:
+                    return token
+    except Exception:
+        pass
+    
+    return None
+
+# 获取并设置 token
+hf_token = get_hf_token()
+if hf_token:
+    os.environ["HF_TOKEN"] = hf_token
+    print(f"{Fore.GREEN}✅ 已设置 HuggingFace Token (前缀：{hf_token[:10]}...){Style.RESET_ALL}")
+else:
+    print(f"{Fore.YELLOW}⚠️  未设置 HF_TOKEN，下载速度可能较慢{Style.RESET_ALL}")
+    print(f"   获取 token: {Fore.CYAN}https://huggingface.co/settings/tokens{Style.RESET_ALL}\n")
+
 import json
 import time
 from typing import List, Dict, Any
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+# 尝试使用新包，如果失败则使用旧包
+try:
+    from langchain_huggingface import HuggingFaceEmbeddings
+except ImportError:
+    from langchain_community.embeddings import HuggingFaceEmbeddings
 from colorama import init, Fore, Style
 
 # 初始化 colorama（彩色输出）

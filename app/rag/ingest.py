@@ -8,12 +8,17 @@ RAG Ingest - 数据入库脚本
 - 使用 Path 对象处理文件路径 (比字符串更安全)
 - 支持多种分块策略
 """
+import sys
+from pathlib import Path as PathLib
+
+# 添加项目根目录到 Python 路径
+project_root = PathLib(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
 from typing import List, Dict, Any, Optional  # 类型注解
 from pathlib import Path  # 路径处理类
 import json  # JSON 处理
-from ..config import settings  # 导入配置
-from .embedding import get_embeddings  # 导入嵌入函数
-
+from app.config import settings  # 导入配置
+from app.rag.embedding import get_embeddings  # 导入嵌入函数
 
 # ==================== 文档入库工具类 ====================
 class DocumentIngestor:

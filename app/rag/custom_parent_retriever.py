@@ -7,13 +7,65 @@
 - 类似：先找到精确匹配的段落，再返回完整的章节
 - 解决：大块语义不精确 vs 小块丢失上下文的矛盾
 """
+import warnings
+
+# 抑制 LangChain 弃用警告
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+# ==================== HuggingFace Token 配置 ====================
+import os
+from pathlib import Path as PathLib
+
+def get_hf_token():
+    """获取 HuggingFace Token（优先级：环境变量 > .env > ~/.huggingface_token）"""
+    token = os.getenv("HF_TOKEN")
+    if token:
+        return token
+    
+    try:
+        project_root = PathLib(__file__).parent.parent.parent
+        env_file = project_root / ".env"
+        if env_file.exists():
+            with open(env_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("HF_TOKEN="):
+                        return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    
+    try:
+        home_dir = PathLib.home()
+        token_file = home_dir / ".huggingface_token"
+        if token_file.exists():
+            with open(token_file, 'r', encoding='utf-8') as f:
+                token = f.read().strip()
+                if token:
+                    return token
+    except Exception:
+        pass
+    
+    return None
+
+hf_token = get_hf_token()
+if hf_token:
+    os.environ["HF_TOKEN"] = hf_token
+else:
+    print("⚠️  未设置 HF_TOKEN，下载速度可能较慢")
+    print("   获取 token: https://huggingface.co/settings/tokens\n")
+
 from typing import List, Dict, Any, Optional, Tuple
 import json
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.storage import InMemoryStore, LocalFileStore
+# 尝试使用新包，如果失败则使用旧包
+try:
+    from langchain_huggingface import HuggingFaceEmbeddings
+except ImportError:
+    from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.storage import InMemoryStore
 from langchain.retrievers import ParentDocumentRetriever as LangChainParentRetriever
 import numpy as np
 
@@ -210,7 +262,7 @@ class CustomParentDocumentRetriever:
     def _init_embeddings(self) -> HuggingFaceEmbeddings:
         """初始化嵌入模型"""
         return HuggingFaceEmbeddings(
-            model_name="bge-large-zh-v1.5",
+            model_name="BAAI/bge-large-zh-v1.5",
             model_kwargs={'device': 'cpu'},
             encode_kwargs={'normalize_embeddings': True}
         )

@@ -84,7 +84,8 @@ class Settings(BaseSettings):
     
     # 文本分块重叠大小
     CHUNK_OVERLAP: int = 50
-    
+
+    HF_TOKEN: Optional[str] = None
     # ==================== 数据库配置 ====================
     # 数据库连接 URL，可以为 None
     DATABASE_URL: Optional[str] = None
