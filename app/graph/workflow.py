@@ -49,10 +49,49 @@ def create_workflow() -> StateGraph:
     # 类似 Java 的 workflow.startWith("narrator")
     workflow.set_entry_point("narrator")
     
-    # ========== 添加 Edge (边) ==========
-    # add_edge(from_node, to_node) 定义节点之间的连接
-    # 类似 Java 的 workflow.from("narrator").to("detective")
-    # 这是无条件边，执行完 from_node 后必定执行 to_node
+    # ========== 添加条件边 (使用路由函数) ==========
+    # add_conditional_edges 根据状态动态决定下一个节点
+    # 类似 Java 的状态模式或路由器模式
+    
+    def should_continue(state: GameState) -> str:
+        """
+        路由函数 - 根据游戏状态决定是否继续
+        
+        Args:
+            state: 当前游戏状态
+            
+        Returns:
+            str: 下一个节点或 "end"
+        """
+        # 检查游戏是否结束
+        game_over = state.get("game_over", False)
+        is_alive = state.get("is_alive", True)
+        turn_count = state.get("turn_count", 0)
+        
+        print(f"\n🔀 [路由检查] 当前回合数：{turn_count}")
+        print(f"📊 游戏结束状态：{game_over}")
+        print(f"💓 玩家存活状态：{is_alive}")
+        
+        # 如果游戏已结束或玩家已死亡，终止工作流
+        if game_over or not is_alive:
+            death_reason = state.get("death_reason", "")
+            print(f"🛑 游戏结束：{death_reason if death_reason else '正常结束'}")
+            return "end"
+        else:
+            print(f"➡️  继续下一轮 (第 {turn_count} 回合)")
+            return "continue"
+    
+    # 从证人节点添加条件边，根据回合数决定是否回到主持人
+    workflow.add_conditional_edges(
+        "witness",           # 源节点
+        should_continue,     # 路由函数
+        {
+            "continue": "narrator",  # 如果返回 "continue"，回到主持人
+            "end": END               # 如果返回 "end"，结束工作流
+        }
+    )
+    
+    # ========== 添加其他无条件边 ==========
     
     # 主持人 -> 侦探
     workflow.add_edge("narrator", "detective")
@@ -62,9 +101,6 @@ def create_workflow() -> StateGraph:
     
     # 嫌疑人 -> 证人
     workflow.add_edge("suspect", "witness")
-    
-    # 证人 -> 主持人 (形成循环)
-    workflow.add_edge("witness", "narrator")
     
     # ========== 编译工作流 ==========
     # compile() 将图结构编译为可执行对象
@@ -142,10 +178,24 @@ async def run_game_turn(
     # custom_workflow or workflow_app 类似 Java 的 Optional.orElse()
     app = custom_workflow or workflow_app
     
+    print("\n" + "="*60)
+    print("🚀 [工作流] 开始执行 ainvoke()")
+    print("="*60)
+    print(f"📌 入口节点：narrator")
+    print(f"📌 初始回合数：{initial_state.get('turn_count', 0)}")
+    print(f"📌 初始阶段：{initial_state.get('current_phase', 'intro')}")
+    
     # ainvoke 是异步调用
     # 类似 Java 的 CompletableFuture.get()
     # 工作流会从入口点开始，按照边定义执行所有 Node
     final_state = await app.ainvoke(initial_state)
+    
+    print("\n" + "="*60)
+    print("✅ [工作流] ainvoke() 执行完成")
+    print("="*60)
+    print(f"📌 最终回合数：{final_state.get('turn_count')}")
+    print(f"📌 最终阶段：{final_state.get('current_phase')}")
+    print(f"📌 生成消息数：{len(final_state.get('messages', []))}")
     
     return final_state
 

@@ -52,7 +52,7 @@ class Message(TypedDict):
 
 class CharacterInfo(TypedDict):
     """
-    角色信息结构 - 定义剧本杀角色的完整信息
+    角色信息结构 - 定义 RPG 角色的完整信息
     
     @Java 程序员提示:
     - Dict[str, str] 类似 Java 的 Map<String, String>
@@ -62,9 +62,12 @@ class CharacterInfo(TypedDict):
     character_id: str  # 角色唯一 ID
     name: str  # 角色姓名
     background: str  # 背景故事
+    role_type: str  # 角色身份（如武将、谋士、商人等）
     relationships: Dict[str, str]  # 与其他角色的关系 {角色 ID: 关系描述}
     secrets: List[str]  # 角色秘密列表
     alibi: Optional[str]  # 不在场证明，可以为 None
+    target: str  # 角色目标
+    historical_basis: str  # 历史依据
 
 
 class Clue(TypedDict):
@@ -108,7 +111,7 @@ class GameState(TypedDict):
     
     # ---------- 基础信息 ----------
     game_id: str  # 游戏会话唯一标识
-    current_phase: str  # 当前阶段："intro", "investigation", "interrogation", "conclusion"
+    current_phase: str  # 当前阶段："intro", "gameplay", "gameover"
     turn_count: int  # 回合数计数器
     
     # ---------- 对话历史 ----------
@@ -136,6 +139,20 @@ class GameState(TypedDict):
     # ---------- 错误处理 ----------
     errors: List[str]  # 错误消息列表
     metadata: Dict[str, Any]  # 元数据，存储其他信息
+    
+    # ---------- 玩家输入 ----------
+    player_input: Optional[str]  # 玩家最新输入
+    player_choices: List[Dict[str, Any]]  # 玩家历史选择记录
+    
+    # ---------- RAG 检索 ----------
+    rag_context: List[Dict[str, Any]]  # RAG 检索到的上下文（带分数）
+    historical_event: Optional[Dict[str, Any]]  # 当前核心历史事件
+    rag_characters: List[Dict[str, Any]]  # 从 RAG 中提取的候选角色列表
+    
+    # ---------- RPG 新增字段 ----------
+    is_alive: bool  # 玩家是否存活
+    death_reason: Optional[str]  # 死亡原因（如果已死亡）
+    game_over: bool  # 游戏是否结束
 
 
 # ==================== 使用示例 (注释) ====================

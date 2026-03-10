@@ -255,7 +255,7 @@ def calculate_suspicion_level(
 # ==================== 游戏结束检查 ====================
 def check_game_completion(state: GameState) -> Dict[str, Any]:
     """
-    检查游戏是否应该结束
+    检查游戏是否应该结束（RPG 模式）
     
     Args:
         state: 当前游戏状态
@@ -270,23 +270,26 @@ def check_game_completion(state: GameState) -> Dict[str, Any]:
         }
         
     @Java 程序员提示:
-    - 类似游戏状态机检查
-    - 检查胜利条件
-    - 返回游戏结果
+    - RPG 模式下，游戏结束主要是玩家死亡
+    - 也可以包括统一天下等胜利条件
     - 类似 Java 的游戏引擎逻辑
     """
-    # TODO: 实现完整的游戏结束检查
+    # 检查玩家是否存活
+    is_alive = state.get("is_alive", True)
+    game_over = state.get("game_over", False)
+    death_reason = state.get("death_reason", "")
     
-    # 示例：检查是否已收集足够线索
-    collected_clues = state.get("collected_clues", [])
-    if len(collected_clues) >= 10:
-        # 线索足够，游戏结束
+    if not is_alive or game_over:
+        # 玩家已死亡，游戏结束
         return {
             "is_finished": True,
-            "reason": "已收集足够线索",
-            "winner": "侦探",
-            "final_score": 100
+            "reason": death_reason if death_reason else "玩家死亡",
+            "winner": None,
+            "final_score": calculate_final_score(state)
         }
+    
+    # TODO: 可以添加其他结束条件
+    # 例如：统一天下、达成角色目标等
     
     # 默认：游戏继续
     return {
@@ -295,6 +298,35 @@ def check_game_completion(state: GameState) -> Dict[str, Any]:
         "winner": None,
         "final_score": 0
     }
+
+
+def calculate_final_score(state: GameState) -> int:
+    """
+    计算最终得分
+    
+    Args:
+        state: 当前游戏状态
+        
+    Returns:
+        int: 最终得分
+    """
+    score = 0
+    
+    # 基础分：根据回合数
+    turn_count = state.get("turn_count", 0)
+    score += turn_count * 100
+    
+    # 成就分：根据收集的情报
+    collected_clues = state.get("collected_clues", [])
+    score += len(collected_clues) * 50
+    
+    # 历史影响分：根据玩家选择的影响
+    player_choices = state.get("player_choices", [])
+    for choice in player_choices:
+        if choice.get('type') == 'speech':
+            score += 20  # 每次有意义的选择加 20 分
+    
+    return score
 
 
 # ==================== 工具函数使用示例 ====================

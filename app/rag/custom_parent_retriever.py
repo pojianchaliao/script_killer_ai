@@ -3,8 +3,8 @@
 
 @Java 程序员提示:
 - 这是 LangChain ParentDocumentRetriever 的自定义实现
-- 核心思想：用小 chunk 检索，返回大 chunk（保留上下文）
-- 类似：先找到精确匹配的段落，再返回完整的章节
+- 核心思想：将父文档和子文档都存入向量库
+- 检索时同时检索父文档和子文档，返回匹配的父文档
 - 解决：大块语义不精确 vs 小块丢失上下文的矛盾
 """
 import warnings
@@ -55,7 +55,7 @@ else:
     print("⚠️  未设置 HF_TOKEN，下载速度可能较慢")
     print("   获取 token: https://huggingface.co/settings/tokens\n")
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set
 import json
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -65,8 +65,6 @@ try:
     from langchain_huggingface import HuggingFaceEmbeddings
 except ImportError:
     from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.storage import InMemoryStore
-from langchain.retrievers import ParentDocumentRetriever as LangChainParentRetriever
 import numpy as np
 
 
@@ -219,10 +217,10 @@ class CustomParentDocumentRetriever:
     自定义 ParentDocumentRetriever
     
     @Java 程序员提示:
-    - 这是 LangChain ParentDocumentRetriever 的封装
-    - 使用小的子文档进行检索，返回大的父文档
-    - 解决了大块语义不精确和小块丢失上下文的矛盾
-    - 使用了装饰器模式 (Decorator Pattern)
+    - 将父文档和子文档都存入向量库
+    - 检索时同时检索父文档和子文档
+    - 返回匹配到的父文档（去重）
+    - 不再使用 LangChain 的 ParentDocumentRetriever
     """
     
     def __init__(
@@ -242,7 +240,7 @@ class CustomParentDocumentRetriever:
             parent_chunk_size: 父文档大小 (tokens)
             child_chunk_size: 子文档大小 (tokens)
             chunk_overlap: 重叠部分大小
-            search_k: 检索返回的子文档数量
+            search_k: 检索返回的文档数量
             persist_directory: 向量存储持久化目录
         """
         self.data_path = data_path
@@ -256,8 +254,6 @@ class CustomParentDocumentRetriever:
         self.processor = ThreeKingdomsDocumentProcessor(data_path)
         self.embeddings = self._init_embeddings()
         self.vectorstore = self._init_vectorstore()
-        self.docstore = self._init_docstore()
-        self.retriever = self._init_retriever()
     
     def _init_embeddings(self) -> HuggingFaceEmbeddings:
         """初始化嵌入模型"""
@@ -275,48 +271,18 @@ class CustomParentDocumentRetriever:
             persist_directory=self.persist_directory
         )
     
-    def _init_docstore(self) -> InMemoryStore:
-        """初始化文档存储"""
-        return InMemoryStore()
-    
-    def _init_retriever(self) -> LangChainParentRetriever:
-        """初始化 LangChain ParentDocumentRetriever"""
-        # 父文档分割器 - 保持完整事件
-        parent_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.parent_chunk_size,
-            chunk_overlap=self.chunk_overlap,
-            length_function=len,
-            separators=["\n\n", "\n", "。", "！", "？", "", " "]
-        )
-        
-        # 子文档分割器 - 按字段切分
-        child_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.child_chunk_size,
-            chunk_overlap=self.chunk_overlap,
-            length_function=len,
-            separators=["\n\n", "\n", "。", "！", "？", "", " "]
-        )
-        
-        # 创建 LangChain ParentDocumentRetriever
-        retriever = LangChainParentRetriever(
-            vectorstore=self.vectorstore,
-            docstore=self.docstore,
-            child_splitter=child_splitter,
-            parent_splitter=parent_splitter,
-            search_kwargs={"k": self.search_k}
-        )
-        
-        return retriever
-    
     def add_documents(self):
         """添加文档到检索器"""
-        # 获取父文档
+        # 获取父文档和子文档
         parent_docs = self.processor.create_full_documents()
+        child_docs = self.processor.create_child_documents()
         
-        # 添加到检索器（会自动处理父子关系）
-        self.retriever.add_documents(parent_docs)
+        # 将所有文档添加到向量库
+        all_docs = parent_docs + child_docs
+        self.vectorstore.add_documents(all_docs)
         
-        print(f"✅ 已添加 {len(parent_docs)} 个父文档")
+        print(f"✅ 已添加 {len(parent_docs)} 个父文档和 {len(child_docs)} 个子文档")
+        print(f"   总计：{len(all_docs)} 个文档")
     
     def retrieve(self, query: str, k: Optional[int] = None) -> List[Document]:
         """
@@ -327,18 +293,66 @@ class CustomParentDocumentRetriever:
             k: 返回结果数量（可选，覆盖默认值）
             
         Returns:
-            List[Document]: 检索到的父文档列表
+            List[Document]: 检索到的父文档列表（去重）
         """
-        if k is not None:
-            # 临时修改 search_k
-            original_k = self.search_k
-            self.retriever.search_kwargs["k"] = k
-            results = self.retriever.invoke(query)
-            self.retriever.search_kwargs["k"] = original_k
-        else:
-            results = self.retriever.invoke(query)
+        search_k = k if k is not None else self.search_k
         
-        return results
+        # 在向量库中搜索所有文档
+        results = self.vectorstore.similarity_search(query, k=search_k * 2)  # 扩大搜索范围以确保找到足够的父文档
+        
+        # 提取唯一的父文档 ID
+        parent_ids: Set[str] = set()
+        parent_docs_map: Dict[str, Document] = {}
+        
+        for doc in results:
+            doc_type = doc.metadata.get("doc_type")
+            
+            # 如果是父文档，直接加入结果
+            if doc_type == "parent":
+                doc_id = doc.metadata.get("id")
+                if doc_id and doc_id not in parent_ids:
+                    parent_ids.add(doc_id)
+                    parent_docs_map[doc_id] = doc
+            else:
+                # 如果是子文档，通过 parent_id 找到对应的父文档
+                parent_id = doc.metadata.get("parent_id")
+                if parent_id and parent_id not in parent_ids:
+                    # 需要从原始数据中构建父文档
+                    parent_doc = self._get_parent_doc_by_id(parent_id)
+                    if parent_doc:
+                        parent_ids.add(parent_id)
+                        parent_docs_map[parent_id] = parent_doc
+        
+        # 返回父文档列表
+        return list(parent_docs_map.values())[:search_k]
+    
+    def _get_parent_doc_by_id(self, parent_id: str) -> Optional[Document]:
+        """
+        根据 ID 获取父文档
+        
+        Args:
+            parent_id: 父文档 ID
+            
+        Returns:
+            Optional[Document]: 父文档对象，如果不存在则返回 None
+        """
+        # 从原始数据中查找
+        for item in self.processor.raw_data:
+            if item['id'] == parent_id:
+                content = self.processor._format_full_content(item)
+                return Document(
+                    page_content=content,
+                    metadata={
+                        "id": item['id'],
+                        "event": item['event'],
+                        "theme": item['theme'],
+                        "source_type": item['source_type'],
+                        "dramatic_value": item.get('dramatic_value', 'unknown'),
+                        "tags": item['tags'],
+                        "doc_type": "parent"
+                    }
+                )
+        return None
     
     def retrieve_with_scores(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """
@@ -351,29 +365,41 @@ class CustomParentDocumentRetriever:
         Returns:
             List[Dict]: 包含文档内容和分数的字典列表
         """
-        # 先在子文档中搜索（带分数）
-        child_results = self.vectorstore.similarity_search_with_score(query, k=k)
+        # 在向量库中搜索带分数的文档
+        child_results = self.vectorstore.similarity_search_with_score(query, k=k * 2)
         
-        # 提取父文档 ID
-        parent_ids = list(set([
-            doc.metadata.get("parent_id") or doc.metadata.get("id")
-            for doc, _ in child_results
-        ]))
+        # 提取父文档 ID 并去重
+        parent_ids: Set[str] = set()
+        parent_docs_map: Dict[str, Tuple[Document, float]] = {}
         
-        # 返回父文档
-        results = []
-        for parent_id in parent_ids[:k]:
-            # 从 docstore 获取父文档
-            parent_doc = self.docstore.mget([parent_id])[0]
+        for doc, score in child_results:
+            doc_type = doc.metadata.get("doc_type")
             
-            if parent_doc:
-                results.append({
-                    "document": parent_doc,
-                    "metadata": parent_doc.metadata,
-                    "content": parent_doc.page_content
-                })
+            if doc_type == "parent":
+                doc_id = doc.metadata.get("id")
+                if doc_id and doc_id not in parent_ids:
+                    parent_ids.add(doc_id)
+                    parent_docs_map[doc_id] = (doc, score)
+            else:
+                parent_id = doc.metadata.get("parent_id")
+                if parent_id and parent_id not in parent_ids:
+                    parent_doc = self._get_parent_doc_by_id(parent_id)
+                    if parent_doc:
+                        parent_ids.add(parent_id)
+                        # 使用子文档的分数
+                        parent_docs_map[parent_id] = (parent_doc, score)
         
-        return results
+        # 返回带分数的父文档
+        results = []
+        for parent_id, (doc, score) in parent_docs_map.items():
+            results.append({
+                "document": doc,
+                "metadata": doc.metadata,
+                "content": doc.page_content,
+                "score": float(score)
+            })
+        
+        return results[:k]
 
 
 # ==================== 工厂函数 ====================
